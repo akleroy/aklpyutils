@@ -20,7 +20,7 @@ import scipy.stats
 import os.path
 import sys
 
-from utils_deproject import deproject
+from aklpyutils.utils_deproject import deproject
 
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 # Distance calculations
