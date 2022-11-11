@@ -63,6 +63,8 @@ def deproject(center_coord=None, incl=0*u.deg, pa=0*u.deg,
     This is the Python version of an IDL function `deproject` included
     in the `cpropstoo` package. See URL below:
     https://github.com/akleroy/cpropstoo/blob/master/cubes/deproject.pro
+
+    Python routine from Jiayi Sun.
     """
 
     if isinstance(center_coord, SkyCoord):
