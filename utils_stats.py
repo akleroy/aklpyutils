@@ -7,9 +7,9 @@ from scipy.optimize import curve_fit
 from astropy.stats import mad_std
 from astropy.table import Table
 
-# ------------------------------------------------
-# Related to describing distributions and binning
-# ------------------------------------------------
+# &%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%
+# Routines related to describing distributions
+# &%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%
 
 def perc_w_lim(vals,lims=None,perc=50):
     """Calculate a percentile in the presence of limits. This is only
@@ -352,9 +352,9 @@ def print_stat_dict(stat_dict):
 
     return
 
-# ------------------------------
-# Related to binning
-# ------------------------------
+# &%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%
+# Routines related to binning data
+# &%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%
 
 def bin_edges_from_xloxhi(
         xlo, xhi, check=True
@@ -443,7 +443,6 @@ def make_centered_bins(
     xhi = xmid+half_width
     
     return((xlo,xhi,xmid,nbin))
-
 
 def make_spanning_bins(
         xmin, xmax, step,
@@ -607,7 +606,8 @@ def bin_data(
 
     return(bin_table)
 
-# N.B. the routine below needs to be refactored
+# N.B. the routine below needs to be refactored to use the newer
+# distribution descriptions.
 
 def running_med(
         x, y,
@@ -616,6 +616,8 @@ def running_med(
     """Conduct a running percentile calculation, potentially with limits,
     in y vs x.
     """   
+
+    raise Exception("Need to refactor this routine.")
     
     # Make sure x and y are arrays
     x = np.array(x)
@@ -693,9 +695,9 @@ def running_med(
 
     return(bin_table)
 
-# ------------------------------
+# &%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%
 # Related to fitting lines
-# ------------------------------
+# &%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%
 
 def orth_dist(x, y, m, b):
     aa = -1.0*m
@@ -813,10 +815,9 @@ def iterate_odr(x, y, e_x=None, e_y=None,
      
     return((slope,intercept,rms))
 
-
-# ------------------------------
-# Related to two-d data fields
-# ------------------------------
+# &%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%
+# Related to two dimensional fields
+# &%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%
 
 def calc_local_density(
         x,y,w=None,
