@@ -422,6 +422,133 @@ def calc_twopoint(
     return(clustering)
 
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+# Calculate peak vs. image cross-correlation
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+def make_mock_image(
+        peak_val, peak_ra, peak_dec, peak_fwhm, ra_map, dec_map,        
+        mask_to_blank=None, verbose=True):
+    """Take a list of peak values and positions and sizes and a coordinate
+    grid and fill in the grid with two dimensional Gaussians. Useful
+    to build a control for peak/image cross-correlation.
+    """
+    
+    # Initialize
+    n_peaks = len(peak_val)
+
+    # Check if the size varies by source
+    fixed_fwhm = False
+    if (type(peak_fwhm) == type(1.0)) or \
+       (type(peak_fwhm) == type(1)):
+        fixed_fwhm = True
+
+    # Copy the image of x coords
+    map = np.zeros_like(ra_map)
+        
+    for ii in range(n_peaks):
+
+        this_val = peak_val[ii]
+        this_ra = peak_ra[ii]
+        this_dec = peak_dec[ii]
+
+        # Deproject ra and dec to dx and dy and cylindrical coords
+        center_coords = [this_ra, this_dec]        
+        this_dist = (deproject(
+            center_coord=center_coords, incl=0.0, pa=0.0,
+            ra=ra_map, dec=dec_map, return_offset=True))[0]
+
+        if fixed_fwhm:
+            this_width_sig = peak_fwhm/2.354
+        else:
+            this_width_sig = peak_fwhm[ii]/2.354
+        
+        this_source = this_val*np.exp(-1./2.*this_dist**2/this_width_sig**2)
+
+        map += this_source
+        
+    # Apply any mask
+    if mask_to_blank is not None:
+        map[mask_to_blank] = np.nan
+
+    # Return
+    return(map)
+
+def calc_many_peak_image_crosses(
+        peak_val, peak_x, peak_y,
+        img_val, img_x, img_y, 
+        bins_lo, bins_hi,
+        verbose=True):
+    """Calculate an ensemble of peak-image crosses given an input vector
+    of peaks and an input image of values and associated coordinates.
+    """
+
+    # Initialize
+    n_peaks = len(peak_val)
+    n_bins = len(bins_lo)
+    
+    all_crosses = np.zeros((n_peaks, n_bins))*np.nan
+    all_counts = np.zeros((n_peaks, n_bins))*np.nan
+    
+    # Loop over peaks
+    for ii in range(n_peaks):
+
+        this_peak_val = peak_val[ii]
+        this_peak_x = peak_x[ii]
+        this_peak_y = peak_y[ii]
+
+        this_dist_img = np.sqrt((this_peak_x-img_x)**2 + (this_peak_y-img_y)**2)
+
+        this_cross, this_counts = calc_one_peak_image_cross(
+            this_peak_val, img_val, this_dist_img,
+            bins_lo, bins_hi, verbose=verbose)
+
+        all_crosses[ii,:] = this_cross
+        all_counts[ii,:] = this_counts
+        
+    # Return
+    return(all_crosses, all_counts)
+    
+def calc_one_peak_image_cross(
+        peak_val, img_val, img_dist,
+        bins_lo, bins_hi,
+        verbose=True):
+    """
+    Calculate a single peak-image cross correlation given an image of
+    intensities, an image of separation lengths, and some bins.
+    """
+
+    # Initialize
+    n_bins = len(bins_lo)
+    bin_vals = np.zeros(n_bins)*np.nan
+    bin_counts = np.zeros(n_bins)
+
+    # Downselect to region of interest
+    max_dist = np.nanmax(bins_hi)
+    use_ind = np.isfinite(img_val)*np.isfinite(img_dist)*(img_dist <= max_dist)
+    vec_dist = img_dist[use_ind]
+    vec_val = img_val[use_ind]
+
+    # Loop over bins
+    for ii in range(n_bins):
+
+        this_lo = bins_lo[ii]
+        this_hi = bins_hi[ii]
+
+        in_this_bin = (vec_dist >= this_lo)*(vec_dist < this_hi)
+        this_vec_val = vec_val[in_this_bin]        
+        this_bin_val = np.sum(this_vec_val*peak_val)
+
+        bin_vals[ii] = this_bin_val
+        bin_counts[ii] = np.sum(np.isfinite(this_vec_val)*1.0)
+        
+    # Print any requested info
+    if verbose:
+        pass
+
+    # Return
+    return(bin_vals, bin_counts)
+    
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 # Add spacing related value to a pyCPROPS catalog
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 

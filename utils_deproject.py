@@ -9,7 +9,7 @@ from astropy.coordinates import SkyCoord
 
 def deproject(center_coord=None, incl=0*u.deg, pa=0*u.deg,
               header=None, wcs=None, naxis=None, ra=None, dec=None,
-              return_offset=False):
+              return_offset=False, verbose=False):
 
     """
     Calculate deprojected radii and projected angles in a disk.
@@ -104,7 +104,8 @@ def deproject(center_coord=None, incl=0*u.deg, pa=0*u.deg,
             ra_deg, dec_deg = np.broadcast_arrays(ra, dec)
         else:
             ra_deg, dec_deg = ra, dec
-            print("ra ndim != 1")
+            if verbose:
+                print("ra ndim != 1")
         if hasattr(ra, 'unit'):
             ra_deg = ra.to(u.deg).value
             dec_deg = dec.to(u.deg).value
