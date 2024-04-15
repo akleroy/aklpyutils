@@ -3,6 +3,7 @@ import numpy as np
 import scipy.stats
 from scipy.odr import ODR, Model, Data, RealData
 from scipy.optimize import curve_fit
+from scipy.stats import spearmanr, kendalltau
 
 from astropy.stats import mad_std
 from astropy.table import Table
@@ -610,47 +611,68 @@ def bin_data(
 # distribution descriptions.
 
 def running_med(
-        x, y,
+        x, y, yerr=None,
         halfwin=10,
-        xlims=None, ylims=None, lowerlims=False):
+        x_of_ylim=None, y_of_ylim=None,        
+        ylim_are_lowerlims=False, fidval_for_ylim=None):
     """Conduct a running percentile calculation, potentially with limits,
     in y vs x.
     """   
-
-    raise Exception("Need to refactor this routine.")
     
     # Make sure x and y are arrays
     x = np.array(x)
     y = np.array(y)
-    if ylims is not None:
-        xlims = np.array(xlims)
-        ylims = np.array(ylims)
 
+    # Make sure we have an appropriate error array
+    if yerr is None:
+        yerr = x*np.nan
+    else:
+        yerr = np.array(yerr)
+        
+    if len(yerr) == 1:
+        yerr = x*0.0+yerr
+        
+    if len(yerr) != len(x):
+        print()
+        print("Length of error, vector: ", len(yerr), len(x))
+        print()
+        raise Exception("Mismatched error and data arrays.")
+    
     # Keep only finite elements
     fin_ind = np.isfinite(x)*np.isfinite(y)
     x = x[fin_ind]
     y = y[fin_ind]
-    if ylims is not None:
-        lim_ind = np.isfinite(xlims)*np.isfinite(ylims)
-        xlims = xlims[lim_ind]
-        ylims = ylims[lim_ind]
+    yerr = yerr[fin_ind]
     
+    # Identify the limits we work with (if any)
+    if y_of_ylim is not None:
+        using_lims = True
+        lim_fin_ind = np.isfinite(x_of_ylim)*np.isfinite(y_of_ylim)
+        x_of_ylim = x_of_ylim[lim_fin_ind]
+        y_of_ylim = y_of_ylim[lim_fin_ind]
+    else:
+        using_lims = False
+
     # Initialize a limit flag
-    yislim = y*0.0
-    if ylims is not None:
-        ylimislim = ylims*0.0+1.0
     
-    # Merge the limits and measurements if needed
-    if ylims is not None:
-        x = np.concatenate((x,xlims))
-        y = np.concatenate((y,ylims))
-        yislim = np.concatenate((yislim,ylimislim))
+    # ... for the data
+    y_is_lim = y*0.0
+    # ... for the limits
+    if using_lims:
+        ylim_is_lim = y_of_ylim*0.0+1.0
         
-    # Sort    
+    # Merge the limits and measurements if needed
+    if using_lims:
+        x = np.concatenate((x,x_of_ylim))
+        y = np.concatenate((y,y_of_ylim))
+        y_is_lim = np.concatenate((y_is_lim,ylim_is_lim))
+        
+    # Sort the data by x
     ind = np.argsort(x)
     x = x[ind]
     y = y[ind]
-    yislim = yislim[ind]
+    yerr = yerr[ind]
+    y_is_lim = y_is_lim[ind]
 
     # Note vector length
     n = len(x)
@@ -668,27 +690,37 @@ def running_med(
             continue
     
         # Extract working vectors
-        thisx = x[ii]
+        this_x = x[ii]
         this_xlo = x[ii-halfwin]
         this_xhi = x[ii+halfwin]
-        thisy = y[(ii-halfwin):(ii+halfwin)]
-        thisyislim = yislim[(ii-halfwin):(ii+halfwin)]
+        this_y = y[(ii-halfwin):(ii+halfwin)]
+        this_yerr = yerr[(ii-halfwin):(ii+halfwin)]
+        this_yislim = y_is_lim[(ii-halfwin):(ii+halfwin)]
 
-        vals = thisy[thisyislim == False]
-        lims = thisy[thisyislim == True]
+        # Differentiate measurements and limits
+        this_yvals = this_y[this_yislim == False]
+        this_ylims = this_y[this_yislim == True]
 
-        # Call percentile calculations
-        perc = calc_stats(vals, lims=lims, 
-                          lims_are_lowerlims=lowerlims, 
-                          doprint=False)       
+        # Calculate the stats for this bin
+        if using_lims:
+            
+            stat_dict = calc_stats(
+                this_yvals, err=this_yerr,
+                lims=this_ylims,
+                lims_are_lowerlims=ylim_are_lowerlims,
+                doprint=False)
+        else:
+            
+            stat_dict = calc_stats(
+                this_yvals, err=this_yerr,
+                lims=None, doprint=False)                
 
-        # Add it to the list
-        perc['xmid'] = thisx
-        perc['xlo'] = this_xlo
-        perc['xhi'] = this_xhi
+        # Add info on the x coordinate
+        stat_dict['xmid'] = this_x
+        stat_dict['xlo'] = this_xlo
+        stat_dict['xhi'] = this_xhi
         
-        # Map to output
-        stats_for_bins.append(perc)
+        stats_for_bins.append(stat_dict)
 
     # Downselect to finite values
     bin_table = Table(stats_for_bins)
@@ -717,7 +749,10 @@ def line_func_curvefit(x,b,m):
 
 def iterate_ols(x, y, e_y=None, guess=[0.0,1.0],
                 x0=None, s2nclip=3., iters=3,
-                doprint=False):
+                doprint=False, min_pts=3):
+    """
+    ...
+    """
     
     if x0 is not None:
         x = x - x0
@@ -735,21 +770,28 @@ def iterate_ols(x, y, e_y=None, guess=[0.0,1.0],
     e_y = e_y[fin_ind]
        
     use = np.isfinite(x)
+    if np.sum(use) < min_pts:
+        return((np.nan,np.nan,np.nan))
+    
+    first = True
+
     for ii in range(iters):
         if s2nclip is None:
-            if ii > 0:
+            if first is False:
                 continue
-        
+            
         popt, pcurve = curve_fit(
-            line_func_curvefit, x, y,
-            sigma = e_y, p0 = guess)
+            line_func_curvefit, x[use], y[use],
+            sigma = e_y[use], p0 = guess)
             
         intercept, slope = popt
         resid = y - (intercept + slope*x)
         rms = mad_std(resid)
         
         if s2nclip is not None:            
-            use = np.abs(resid < s2nclip*rms)        
+            use = np.abs(resid < s2nclip*rms)
+
+        first = False
         
     if doprint:
         print("Fit results:")
@@ -763,6 +805,9 @@ def iterate_ols(x, y, e_y=None, guess=[0.0,1.0],
 def iterate_odr(x, y, e_x=None, e_y=None, 
                 x0=None, s2nclip=3., iters=3, guess=[0.0,1.0],
                 doprint=False):  
+    """
+    ...
+    """
       
     if x0 is not None:
         x = x - x0
@@ -814,6 +859,73 @@ def iterate_odr(x, y, e_x=None, e_y=None,
         print("... kept/rejected: ", np.sum(use), np.sum(use==False))
      
     return((slope,intercept,rms))
+
+# &%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%
+# Related to non-parameteric correlatinos
+# &%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%
+
+def corr_with_repair(
+        x, y,
+        n_iter = 1000,
+        method = 'KENDALL'):
+    """Calculate a correlation coefficient, dropping NaNs, and then
+    calculate an error bar and p-value from randomly repairing the
+    data.
+
+    x, y : the input vectors
+
+    n_iter : integer, number of random repairings
+
+    method : string specifying statistic. Options are KENDALL SPEARMAN
+
+    returns : coefficient, error bar, p_value
+
+    """
+
+    if method.upper() not in ['KENDALL','SPEARMAN']:
+        print("... unrecognized method, defaulting to SPEARMAN")
+        method = 'SPEARMAN'
+
+    use = np.isfinite(x)*np.isfinite(y)
+    use_x = x[use]
+    use_y = y[use]
+
+    if method == 'SPEARMAN':
+        rho, p_rho = spearmanr(use_x, use_y)
+        fig_of_merit = rho
+        
+    if method == 'KENDALL':
+        tau, p_tau = kendalltau(use_x, use_y)
+        fig_of_merit = tau
+
+    if n_iter > 0:
+
+        # Initialize output
+        vals = np.zeros(int(n_iter))*np.nan
+
+        for ii in range(n_iter):
+            
+            # re-pair the data by randomizing y vector
+            this_x = use_x
+            ind = np.argsort(np.random.random(len(use_y)))            
+            this_y = use_y[ind]
+            
+            # calculate the stat
+            if method == 'SPEARMAN':
+                rho, p_rho = spearmanr(this_x, this_y)
+                vals[ii] = rho
+
+            if method == 'KENDALL':
+                tau, p_tau = kendalltau(this_x, this_y)
+                vals[ii] = tau
+
+    # calculate an effective p value and a scatter
+
+    p_value = np.sum(np.abs(fig_of_merit) > np.abs(vals))/(1.0*n_iter)
+    scatter = np.std(vals)
+    
+    # return the stat, the error bar, and the effective p_value
+    return(fig_of_merit, scatter, p_value)
 
 # &%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%
 # Related to two dimensional fields
