@@ -184,7 +184,6 @@ def lum_to_mass(lum=None, sfrw1=None):
 
     return(mass)
 
-
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 # R25 to Reff
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
@@ -210,3 +209,347 @@ def pred_rer25_mstar(
     rer25 = broken_law(mstar, xmin=xmin, xmax=xmax,
                        minval=minval, maxval=maxval)
     return(rer25)
+
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+# Galametz et al. 2013 Sigma_TIR
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+def calc_sigtir(
+        i24=None, i70=None, i100=None,
+        i160=None, i250=None):
+    """
+    Implements Table 3 of Galametz+ 2013.
+    """
+
+    # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+    # Setup
+    # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+    
+    # Figure out what bands we have
+    have24 = False
+    have70 = False
+    have100 = False
+    have160 = False
+    have250 = False    
+    
+    if i24 is not None:
+        have24 = True
+    if i70 is not None:
+        have70 = True
+    if i100 is not None:
+        have100 = True
+    if i160 is not None:
+        have160 = True
+    if i250 is not None:
+        have250 = True
+
+    # Constants
+    c = 2.99792458e10
+    pc = 3.0857e18
+    nu24 = c/24.0e-4
+    nu70 = c/70.0e-4
+    nu100 = c/100.0e-4
+    nu160 = c/160.0e-4
+    nu250 = c/250.0e-4
+    
+    # MJy/sr -> W/kpc^2
+    fac24 = nu24*1e-17*1e-7*4.0*np.pi*(pc*1e3)^2
+    fac70 = nu70*1e-17*1e-7*4.0*np.pi*(pc*1e3)^2
+    fac100 = nu100*1e-17*1e-7*4.0*np.pi*(pc*1e3)^2
+    fac160 = nu160*1e-17*1e-7*4.0*np.pi*(pc*1e3)^2
+    fac250 = nu250*1e-17*1e-7*4.0*np.pi*(pc*1e3)^2
+
+    # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+    # Monochromatic conversions
+    # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=    
+
+    # 24
+    if have24==True and \
+       have70==False and \
+       have100==False and \
+       have160==False and \
+       have250==False:
+        pass
+    
+    # 70
+    if have24==False and \
+       have70==True and \
+       have100==False and \
+       have160==False and \
+       have250==False:
+        pass
+    
+    # 100
+    if have24==False and \
+       have70==False and \
+       have100==True and \
+       have160==False and \
+       have250==False:
+        pass
+    
+    # 160
+    if have24==False and \
+       have70==False and \
+       have100==False and \
+       have160==True and \
+       have250==False:
+        pass
+    
+    # 250
+    if have24==False and \
+       have70==False and \
+       have100==False and \
+       have160==False and \
+       have250==True:
+        pass
+    
+    # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+    # Dual-band conversions
+    # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+    # 24 + 70
+    if have24==True and \
+       have70==True and \
+       have100==False and \
+       have160==False and \
+       have250==False:
+
+        s_tir = \
+            (3.925)*i24*fac24 + \
+            (1.551)*i70*fac70
+        return(s_tir)
+
+    # 24 + 100
+    if have24==True and \
+       have70==False and \
+       have100==True and \
+       have160==False and \
+       have250==False:
+
+        s_tir = \
+            (2.421)*i24*fac24 + \
+            (1.410)*i100*fac100
+        return(s_tir)
+        
+    # 24 + 160    
+    if have24==True and \
+       have70==False and \
+       have100==False and \
+       have160==True and \
+       have250==False:
+
+        s_tir = \
+            (3.854)*i24*fac24 + \
+            (1.373)*i160*fac160
+        return(s_tir)
+
+    # 24 + 250
+    if have24==True and \
+       have70==False and \
+       have100==False and \
+       have160==False and \
+       have250==True:
+
+        s_tir = \
+            (5.179)*i24*fac24 + \
+            (3.196)*i250*fac250
+        return(s_tir)
+
+    # 70 + 100
+    if have24==False and \
+       have70==True and \
+       have100==True and \
+       have160==False and \
+       have250==False:
+
+        s_tir = \
+            (0.458)*i70*fac70 + \
+            (1.444)*i100*fac100
+        return(s_tir)
+
+    # 70 + 160
+    if have24==False and \
+       have70==True and \
+       have100==False and \
+       have160==True and \
+       have250==False:
+
+        s_tir = \
+            (0.999)*i70*fac70 + \
+            (1.226)*i160*fac160
+        return(s_tir)
+
+    # 70 + 250
+    if have24==False and \
+       have70==True and \
+       have100==False and \
+       have160==False and \
+       have250==True:
+
+        s_tir = \
+            (1.306)*i70*fac70 + \
+            (2.752)*i250*fac250
+        return(s_tir)
+
+    # 100 + 160
+    if have24==False and \
+       have70==False and \
+       have100==True and \
+       have160==True and \
+       have250==False:
+
+        s_tir = \
+            (1.239)*i100*fac100 + \
+            (0.620)*i160*fac160
+        return(s_tir)
+
+    # 100 + 250
+    if have24==False and \
+       have70==False and \
+       have100==True and \
+       have160==False and \
+       have250==True:
+        
+        s_tir = \
+            (1.403)*i100*fac100 + \
+            (1.242)*i250*fac250
+        return(s_tir)
+
+    # 160 + 250
+    if have24==False and \
+       have70==False and \
+       have100==False and \
+       have160==True and \
+       have250==True:
+        
+        s_tir = \
+            (2.342)*i160*fac160 + \
+            (-0.944)*i250*fac250
+        return(s_tir)
+    
+    # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+    # Three-band conversions
+    # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+    if have24==True and \
+       have70==True and \
+       have100==True and \
+       have160==False and \
+       have250==False:
+
+        s_tir = \
+            (2.162)*i24*fac24 + \
+            (0.185)*i70*fac70 + \
+            (1.319)*i100*fac100
+        return(s_tir)
+
+    if have24==False and \
+       have70==True and \
+       have100==True and \
+       have160==True and \
+       have250==False:
+
+        s_tir = \
+            (0.789)*i70*fac70 + \
+            (0.387)*i100*fac100 + \
+            (0.960)*i160*fac160
+        return(s_tir)
+
+    if have24==False and \
+       have70==False and \
+       have100==True and \
+       have160==True and \
+       have250==True:
+
+        s_tir = \
+            (1.363)*i100*fac100 + \
+            (0.097)*i160*fac160 + \
+            (1.090)*i250*fac250
+        return(s_tir)
+    
+    # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+    # Four-band conversions
+    # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+    if have24==True and \
+       have70==True and \
+       have100==True and \
+       have160==True and \
+       have250==False:
+
+        s_tir = \
+            (2.051)*i24*fac24 + \            
+            (0.521)*i70*fac70 + \            
+            (0.294)*i100*fac100 + \
+            (0.934)*i160*fac160
+        return(s_tir)
+
+    if have24==True and \
+       have70==True and \
+       have100==True and \
+       have160==False and \
+       have250==True:
+
+        s_tir = \
+            (1.983)*i24*fac24 + \            
+            (0.427)*i70*fac70 + \            
+            (0.708)*i100*fac100 + \
+            (1.561)*i250*fac250
+        return(s_tir)
+
+    if have24==True and \
+       have70==True and \
+       have100==False and \
+       have160==True and \
+       have250==True:
+
+        s_tir = \
+            (2.119)*i24*fac24 + \            
+            (0.688)*i70*fac70 + \            
+            (0.995)*i160*fac160 + \
+            (0.354)*i250*fac250
+        return(s_tir)
+
+    if have24==True and \
+       have70==False and \
+       have100==True and \
+       have160==True and \
+       have250==True:
+
+        s_tir = \
+            (2.643)*i24*fac24 + \            
+            (0.836)*i100*fac100 + \            
+            (0.357)*i160*fac160 + \
+            (0.791)*i250*fac250
+        return(s_tir)
+
+    if have24==False and \
+       have70==True and \
+       have100==True and \
+       have160==True and \
+       have250==True:
+
+        s_tir = \
+            (2.643)*i24*fac24 + \            
+            (0.836)*i100*fac100 + \            
+            (0.357)*i160*fac160 + \
+            (0.791)*i250*fac250
+        return(s_tir)
+    
+    # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+    # Five-band conversions
+    # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+    if have24==True and \
+       have70==True and \
+       have100==True and \
+       have160==True and \
+       have250==True:
+
+        s_tir = \
+            (2.013)*i24*fac24 + \
+            (0.508)*i70*fac70 + \                        
+            (0.393)*i100*fac100 + \            
+            (0.599)*i160*fac160 + \
+            (0.680)*i250*fac250
+        return(s_tir)
