@@ -592,7 +592,7 @@ def bin_data(
                 lims_are_lowerlims=ylim_are_lowerlims,
                 doprint=False)
         else:
-            
+
             stat_dict = calc_stats(
                 this_y, err=this_yerr,
                 lims=None, doprint=False)                

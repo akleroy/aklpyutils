@@ -6,11 +6,150 @@ import re
 import warnings
 
 from astropy.io import fits
+from astropy.convolution import convolve_fft
 import astropy.units as u
 from astropy.wcs import WCS
 from astropy.coordinates import SkyCoord
 
 from reproject import reproject_interp, reproject_exact
+
+from scipy.interpolate import RegularGridInterpolator
+
+# ------------------------------------------------------------------------
+# Convolution
+# ------------------------------------------------------------------------
+
+def convolve_image_with_kernel(
+        file_in,
+        file_out,
+        file_kernel,        
+        blank_zeros=True,
+        force_jwst_syntax=False,
+):
+    """
+    
+    Convolves input image with an input kernel, and writes to
+    disk. Moderately edited from PJPIPE version to allow more flexible
+    handling of extensions and remove the reprojection.
+
+    Args:
+        file_in: Path to image file
+        file_out: Path to output file
+        file_kernel: Path to kernel for convolution
+        blank_zeros: If True, then all zero values will be set to NaNs. Defaults to True
+        force_jwst_syntax: Force use of SCI and ERR extensions, else try to be smart
+
+    """
+
+    with fits.open(file_kernel) as kernel_hdu:
+        kernel_pix_scale = get_pixscale(kernel_hdu[0])
+        # Note the shape and grid of the kernel as input
+        kernel_data = kernel_hdu[0].data
+        kernel_hdu_length = kernel_hdu[0].data.shape[0]
+        original_central_pixel = (kernel_hdu_length - 1) / 2
+        original_grid = (
+                                np.arange(kernel_hdu_length) - original_central_pixel
+                        ) * kernel_pix_scale
+
+    with fits.open(file_in) as image_hdu:
+        if force_jwst_syntax:
+            sci_ext = 'SCI'
+        else:
+            hdu_dict = image_hdu.info(False)
+            ext_list = []
+            for this_hdu in hdu_dict:
+                ext_list.append(this_hdu[1])
+            if 'SCI' in ext_list:
+                sci_ext = 'SCI'
+            else:
+                # Most common other case
+                sci_ext = 'PRIMARY'
+                
+        if 'ERR' in ext_list:
+            use_err = True
+        else:
+            use_err = False
+        
+        if blank_zeros:
+            # make sure that all zero values were set to NaNs, which
+            # astropy convolution handles with interpolation
+                
+            image_hdu[sci_ext].data[(image_hdu[sci_ext].data == 0)] = np.nan            
+            if use_err:
+                image_hdu["ERR"].data[(image_hdu[sci_ext].data == 0)] = np.nan
+
+        image_pix_scale = get_pixscale(image_hdu[sci_ext])
+
+        # Calculate kernel size after interpolating to the image pixel
+        # scale. Because sometimes there's a little pixel scale rounding
+        # error, subtract a little bit off the optimum size (Tom
+        # Williams).
+
+        interpolate_kernel_size = (
+                np.floor(kernel_hdu_length * kernel_pix_scale / image_pix_scale) - 2
+        )
+
+        # Ensure the kernel has a central pixel
+
+        if interpolate_kernel_size % 2 == 0:
+            interpolate_kernel_size -= 1
+
+        # Define a new coordinate grid onto which to project the kernel
+        # but using the pixel scale of the image
+
+        new_central_pixel = (interpolate_kernel_size - 1) / 2
+        new_grid = (
+                           np.arange(interpolate_kernel_size) - new_central_pixel
+                   ) * image_pix_scale
+        x_coords_new, y_coords_new = np.meshgrid(new_grid, new_grid)
+
+        # Do the reprojection from the original kernel grid onto the new
+        # grid with pixel scale matched to the image
+
+        grid_interpolated = RegularGridInterpolator(
+            (original_grid, original_grid),
+            kernel_data,
+            bounds_error=False,
+            fill_value=0.0,
+        )
+        kernel_interp = grid_interpolated(
+            (x_coords_new.flatten(), y_coords_new.flatten())
+        )
+        kernel_interp = kernel_interp.reshape(x_coords_new.shape)
+
+        # Ensure the interpolated kernel is normalized to 1
+        kernel_interp = kernel_interp / np.nansum(kernel_interp)
+
+        # Now with the kernel centered and matched in pixel scale to the
+        # input image use the FFT convolution routine from astropy to
+        # convolve.
+
+        conv_im = convolve_fft(
+            image_hdu[sci_ext].data,
+            kernel_interp,
+            allow_huge=True,
+            preserve_nan=True,
+            fill_value=np.nan,
+        )
+
+        # Convolve errors (with kernel**2, do not normalize it).
+        # This, however, doesn't account for covariance between pixels
+        if use_err:
+            conv_err = np.sqrt(
+                convolve_fft(
+                    image_hdu["ERR"].data ** 2,
+                    kernel_interp ** 2,
+                    preserve_nan=True,
+                    allow_huge=True,
+                    normalize_kernel=False,
+                )
+            )
+        
+        image_hdu[sci_ext].data = conv_im
+        if use_err:
+            image_hdu["ERR"].data = conv_err
+
+        image_hdu.writeto(file_out, overwrite=True)
 
 # ------------------------------------------------------------------------
 # Make a clean new simple header to spec
@@ -18,8 +157,26 @@ from reproject import reproject_interp, reproject_exact
 
 def make_simple_header(ra_ctr, dec_ctr, pix_scale,
                        extent_x = None, extent_y = None,
-                       nx = None, ny = None, beam_deg = None):
+                       nx = None, ny = None):
+    """
+    Make a simple centered FITS header.
 
+    
+    Parameters
+    ----------
+    center_coord : `~astropy.coordinates.SkyCoord` object or array-like
+        Sky coordinates of the disk center
+
+    pix_scale : required. Size in decimal degrees of a pixel.
+
+    extent_x : the angular extent of the image along the x coordinate
+    extent_y : the angular extent of the image along the y coordinate
+
+    nx : the number of x pixels (not needed with extent_x and pix_scale)
+    ny : the number of y pixels (not needed with extent_y and pix_scale)
+    
+    """
+    
     # Deal with center, skycoords, units, etc. better
     
     if nx is not None and ny is not None:
@@ -47,13 +204,24 @@ def make_simple_header(ra_ctr, dec_ctr, pix_scale,
     new_hdr['EQUINOX'] = 2000.0
     new_hdr['RADESYS'] = 'FK5'
 
-    if beam_deg is not None:
-        new_hdr['BMAJ'] = beam_deg
-        new_hdr['BMIN'] = beam_deg
-        new_hdr['BPA'] = 0.0
-
     return (new_hdr)
-    
+
+def add_beam_to_header(hdr, bmaj, bmin=None, bpa=0.0):
+    """
+    Add beam information to a header.
+    """
+
+    new_hdr = hdr
+    new_hdr['BMAJ'] = bmaj
+    if bmin is None:
+        new_hdr['BMIN'] = bmaj
+    else:
+        new_hdr['BMIN'] = bmin
+        
+    new_hdr['BPA'] = bpa
+
+    return(new_hdr)
+        
 # ------------------------------------------------------------------------
 # Reprojection
 # ------------------------------------------------------------------------
@@ -113,6 +281,32 @@ def align_image(hdu_to_align, target_header, hdu_in=0,
 # Create coordinate grids from headers
 # ------------------------------------------------------------------------
 
+def get_pixscale(hdu):
+    """From PJPIPE. Get pixel scale from header.
+
+    Checks HDU header and returns a pixel scale
+
+    Args:
+        hdu: hdu to get pixel scale for
+    """
+
+    PIXEL_SCALE_NAMES = ["XPIXSIZE", "CDELT1", "CD1_1", "PIXELSCL"]
+
+    for pixel_keyword in PIXEL_SCALE_NAMES:
+        try:
+            try:
+                pix_scale = np.abs(float(hdu.header[pixel_keyword]))
+            except ValueError:
+                continue
+            if pixel_keyword in ["CDELT1", "CD1_1"]:
+                pix_scale = WCS(hdu.header).proj_plane_pixel_scales()[0].value * 3600
+                # pix_scale *= 3600
+            return pix_scale
+        except KeyError:
+            pass
+
+    raise Warning("No pixel scale found")
+
 def make_vaxis(header):
     """
     Docs forthcoming.
@@ -129,6 +323,8 @@ def make_axes(header=None, wcs=None, naxis=None
     """
     Docs forthcoming
 
+    Similar function to CPROPS code:
+
     Python adapted from Jiayi Sun
     """
 
@@ -137,10 +333,12 @@ def make_axes(header=None, wcs=None, naxis=None
     use_wcs = False
     use_axes = False
 
-    # Deal with a common radio astrometry issue
-    #if 'GLS' in wcs.wcs.ctype[0]:
-    #    wcs.wcs.ctype[0] = wcs.wcs.ctype[0].replace('GLS', 'SFL')
-    #    print(f"Replaced GLS with SFL; ctype[0] now = {wcs.wcs.ctype[0]}")
+    # Deal with a common previous-generation radio astrometry issue,
+    # probably not needed but leaving for now.
+    
+    if 'GLS' in wcs.wcs.ctype[0]:
+        wcs.wcs.ctype[0] = wcs.wcs.ctype[0].replace('GLS', 'SFL')
+        print(f"Replaced GLS with SFL; ctype[0] now = {wcs.wcs.ctype[0]}")
     
     if header is not None:
 
