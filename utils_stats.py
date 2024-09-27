@@ -2,7 +2,7 @@ from collections import OrderedDict
 import numpy as np
 import scipy.stats
 from scipy.odr import ODR, Model, Data, RealData
-from scipy.optimize import curve_fit
+import scipy.optimize
 from scipy.stats import spearmanr, kendalltau
 
 from astropy.stats import mad_std
@@ -726,139 +726,6 @@ def running_med(
     bin_table = Table(stats_for_bins)
 
     return(bin_table)
-
-# &%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%
-# Related to fitting lines
-# &%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%
-
-def orth_dist(x, y, m, b):
-    aa = -1.0*m
-    bb = 1.0
-    cc = -1.*b
-    num = np.abs(aa*x+bb*y+cc)
-    denom = np.sqrt(aa**2+bb**2)
-    return(num/denom)
-
-def line_func(beta, x):
-    y = beta[0]+beta[1]*x
-    return(y)
-
-def line_func_curvefit(x,b,m):
-    y = b + m*x
-    return(y)
-
-def iterate_ols(x, y, e_y=None, guess=[0.0,1.0],
-                x0=None, s2nclip=3., iters=3,
-                doprint=False, min_pts=3):
-    """
-    ...
-    """
-    
-    if x0 is not None:
-        x = x - x0
-    
-    if e_y is None:
-        e_y = 1.0+y*0.0
-    elif type(e_y) == type(1.0):
-        e_y = e_y+y*0.0     
-    elif len(e_y) == 1:
-        e_y = e_y+y*0.0     
-
-    fin_ind = np.isfinite(x)*np.isfinite(y)*np.isfinite(e_y)
-    x = x[fin_ind]
-    y = y[fin_ind]
-    e_y = e_y[fin_ind]
-       
-    use = np.isfinite(x)
-    if np.sum(use) < min_pts:
-        return((np.nan,np.nan,np.nan))
-    
-    first = True
-
-    for ii in range(iters):
-        if s2nclip is None:
-            if first is False:
-                continue
-            
-        popt, pcurve = curve_fit(
-            line_func_curvefit, x[use], y[use],
-            sigma = e_y[use], p0 = guess)
-            
-        intercept, slope = popt
-        resid = y - (intercept + slope*x)
-        rms = mad_std(resid)
-        
-        if s2nclip is not None:            
-            use = np.abs(resid < s2nclip*rms)
-
-        first = False
-        
-    if doprint:
-        print("Fit results:")
-        print("... slope: ", slope)
-        print("... intercept: ", intercept)
-        print("... scatter: ", rms)
-        print("... kept/rejected: ", np.sum(use), np.sum(use==False))
-     
-    return((slope,intercept,rms))
-    
-def iterate_odr(x, y, e_x=None, e_y=None, 
-                x0=None, s2nclip=3., iters=3, guess=[0.0,1.0],
-                doprint=False):  
-    """
-    ...
-    """
-      
-    if x0 is not None:
-        x = x - x0
-    
-    if e_x is None:
-        e_x = 1.0+x*0.0
-    elif type(e_x) == type(1.0):
-        e_x = e_x+x*0.0     
-    elif len(e_x) == 1:
-        e_x = e_x+x*0.0
-    
-    if e_y is None:
-        e_y = 1.0+y*0.0
-    elif type(e_y) == type(1.0):
-        e_y = e_y+y*0.0     
-    elif len(e_y) == 1:
-        e_y = e_y+y*0.0     
-
-    fin_ind = np.isfinite(x)*np.isfinite(y)*np.isfinite(e_x)*np.isfinite(e_y)
-    x = x[fin_ind]
-    y = y[fin_ind]
-    e_x = e_x[fin_ind]
-    e_y = e_y[fin_ind]
-       
-    use = np.isfinite(x)
-    for ii in range(iters):
-        if s2nclip is None:
-            if ii > 0:
-                continue
-        
-        data = RealData(x[use], y[use], e_x[use], e_y[use])
-        model = Model(line_func)
-        odr = ODR(data, model, guess)
-        odr.set_job(fit_type=0)
-        output = odr.run()
-        
-        intercept, slope = output.beta
-        resid = orth_dist(x, y, slope, intercept)
-        rms = mad_std(resid)
-        
-        if s2nclip is not None:            
-            use = np.abs(resid < s2nclip*rms)        
-        
-    if doprint:
-        print("Fit results:")
-        print("... slope: ", slope)
-        print("... intercept: ", intercept)
-        print("... scatter: ", rms)
-        print("... kept/rejected: ", np.sum(use), np.sum(use==False))
-     
-    return((slope,intercept,rms))
 
 # &%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%
 # Related to non-parameteric correlatinos
