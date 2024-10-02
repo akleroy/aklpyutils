@@ -838,3 +838,39 @@ def calc_local_density(
             new_dens[ii] = np.nanmedian(dens[condition])
 
     return(new_dens)
+
+def calc_local_mean(
+        x,y,z,w=None,
+        support=(0.01,0.01),
+        calc_cdf=False,
+        smoothing_box=None):
+    """
+    Modified from above.
+    """
+    
+    n = len(x)
+    dens = np.zeros_like(x)*np.nan
+    if w is None:
+        w = np.isfinite(x)*np.isfinite(y)*1.0
+
+    zfield = z*np.nan
+    for ii in range(n):
+        ind = (x>=(x[ii]-support[0]))* \
+            (x<(x[ii]+support[0]))* \
+            (y>=(y[ii]-support[1]))* \
+            (y<(y[ii]+support[1]))
+        zvec = z[ind]
+        wvec = w[ind]
+        zfield[ii] = np.sum(zvec*wvec)/np.sum(wvec)
+    
+    new_zfield = zfield
+    if (smoothing_box is not None):
+        for ii in range(n):
+            condition = \
+                (x>=(x[ii]-smoothing_box[0]))* \
+                (x<(x[ii]+smoothing_box[0]))* \
+                (y>=(y[ii]-smoothing_box[1]))* \
+                (y<(y[ii]+smoothing_box[1]))
+            new_zfield[ii] = np.nanmedian(zfield[condition])
+
+    return(new_zfield)
