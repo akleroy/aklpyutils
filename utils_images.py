@@ -2,13 +2,16 @@ from __future__ import (
     division, print_function, absolute_import, unicode_literals)
 
 import numpy as np
+import os
 import re
 import warnings
+import math
 
 from astropy.io import fits
 from astropy.convolution import convolve_fft
 import astropy.units as u
 from astropy.wcs import WCS
+from astropy.wcs.utils import proj_plane_pixel_scales
 from astropy.coordinates import SkyCoord
 
 from reproject import reproject_interp, reproject_exact
@@ -47,9 +50,7 @@ def convolve_image_with_kernel(
         kernel_data = kernel_hdu[0].data
         kernel_hdu_length = kernel_hdu[0].data.shape[0]
         original_central_pixel = (kernel_hdu_length - 1) / 2
-        original_grid = (
-                                np.arange(kernel_hdu_length) - original_central_pixel
-                        ) * kernel_pix_scale
+        original_grid = (np.arange(kernel_hdu_length) - original_central_pixel) * kernel_pix_scale
 
     with fits.open(file_in) as image_hdu:
         if force_jwst_syntax:
@@ -335,11 +336,12 @@ def make_axes(header=None, wcs=None, naxis=None
 
     # Deal with a common previous-generation radio astrometry issue,
     # probably not needed but leaving for now.
-    
-    if 'GLS' in wcs.wcs.ctype[0]:
-        wcs.wcs.ctype[0] = wcs.wcs.ctype[0].replace('GLS', 'SFL')
-        print(f"Replaced GLS with SFL; ctype[0] now = {wcs.wcs.ctype[0]}")
-    
+
+    if wcs is not None:
+        if 'GLS' in wcs.wcs.ctype[0]:
+            wcs.wcs.ctype[0] = wcs.wcs.ctype[0].replace('GLS', 'SFL')
+            print(f"Replaced GLS with SFL; ctype[0] now = {wcs.wcs.ctype[0]}")
+            
     if header is not None:
 
         # Extract WCS
@@ -621,3 +623,258 @@ def deproject(center_coord=None, incl=0*u.deg, pa=0*u.deg,
         return radius_deg, projang_deg, deprojdx_deg , deprojdy_deg
     else:
         return radius_deg, projang_deg
+
+# ------------------------------------------------------------------------
+# Cutouts
+# ------------------------------------------------------------------------
+
+def make_cutouts_from_image(
+        image=None,
+        hdu=0,
+        ra=None,
+        dec=None,
+        id=None,
+        out_root = '',
+        pad_arcsec=None,
+        pad_pix=50,
+        fin_thresh=None,
+        quiet=False,
+):
+    """make_cutouts_from_image
+
+    Make a stack of cutouts at positions (ra, dec corresponding to id)
+    from a specified hdu of a fits file (image). The cutouts have size
+    pad in pixels or arcseconds and only cutouts with a fraction
+    fin_thresh will be written to disk.
+
+    Returns an array of the same size as the input vectors.
+
+    """
+
+    if not quiet:
+        print("Cutouts from ", image)
+        
+    # Read the file
+    hdulist = fits.open(image)
+    this_hdu = hdulist[hdu]
+    this_map = this_hdu.data
+    this_header = this_hdu.header
+    this_wcs = WCS(this_header)
+
+    # Set the padding in pixels
+    if pad_arcsec is not None:
+        pix_scale_arcsec = proj_plane_pixel_scales(this_wcs)*3600.
+        if len(pix_scale_arcsec) > 1:
+            pix_scale_arcsec = np.nanmean(pix_scale_arcsec)
+        pad_pix = math.ceil(pad_arcsec / pix_scale_arcsec)
+    
+    # Note the image size
+    nx = this_header['NAXIS1']
+    ny = this_header['NAXIS2']
+    
+    # Get the pixel values for the RA and DEC of the cutout center
+    this_wcs = WCS(this_header).celestial
+    pix_x, pix_y = this_wcs.wcs_world2pix(ra, dec, 0)
+
+    # Need to add some error checking here
+    pix_x = pix_x.astype('int')    
+    pix_y = pix_y.astype('int')
+
+    # Loop over the individual cutouts
+    success = np.zeros(len(id), dtype=bool)
+    for ii in range(len(id)):
+
+        this_id = id[ii]
+        this_x = pix_x[ii]
+        this_y = pix_y[ii]
+        
+        # Check that a full cutout can be achieved
+        if (this_x < pad_pix) or (this_x > (nx-pad_pix-1)) or \
+           (this_y < pad_pix) or (this_y > (ny-pad_pix-1)):
+            success[ii] = False
+            continue
+
+        # Extract a slice
+        # (could also use cutout2d)
+        xlo = this_x - pad_pix
+        xhi = this_x + pad_pix + 1
+        ylo = this_y - pad_pix
+        yhi = this_y + pad_pix + 1
+        this_cutout = this_map[ylo:yhi,xlo:xhi]
+        this_cutout_wcs = this_wcs[ylo:yhi,xlo:xhi]
+        
+        # Quality control the slice
+        if fin_thresh is not None:
+            fin_frac = np.sum(
+                np.isfinite(this_cutout)*1.0)/(1.0*this_cutout.size)
+            if fin_frac < fin_thresh:
+                success[ii] = False
+                continue
+
+        success[ii] = True
+        
+        # Write to disk
+        this_cutout_hdu = this_hdu.copy()
+        this_cutout_hdu.data = this_cutout
+        this_cutout_hdu.header.update(this_cutout_wcs.to_header())
+        this_out_file = out_root + str(this_id).strip() + '.fits'
+        this_cutout_hdu.writeto(this_out_file,overwrite=True)
+    
+    return(success)    
+    
+# ------------------------------------------------------------------------
+# Stacks
+# ------------------------------------------------------------------------
+
+def make_stacks_from_cutouts(
+        image_list=None,
+        hdu=0,
+        out_file_root=None,
+        use_first_image_as_template=True,
+        bkgrd_rad=2.0
+):
+
+    n_reg = len(image_list)
+    
+    template_header = None
+    template_wcs = None
+    cutout_shape = None
+
+    # Define the stack    
+    for this_image in image_list:
+
+        if template_header is not None:
+            continue
+        
+        if os.path.isfile(this_image) == False:
+            continue
+
+        # Read the file
+        hdulist = fits.open(this_image)
+        this_hdu = hdulist[hdu]
+        this_map = this_hdu.data
+
+        if template_header == None and use_first_image_as_template:
+            this_header = this_hdu.header
+            this_wcs = WCS(this_header)            
+            template_header = this_header
+            template_wcs = this_wcs
+            cutout_shape_pix = this_map.shape
+            print("Cutout shape : ", cutout_shape_pix)
+            cutout_center_pix = (cutout_shape_pix[0]/2-0.5, cutout_shape_pix[1]/2.-0.5)
+            print("Cutout center : ", cutout_center_pix)
+
+    # Define an offset image
+    
+    # ... check for rectangular image (not square) - may be backward
+    ra_ctr, dec_ctr = this_wcs.wcs_pix2world(
+        cutout_center_pix[0], cutout_center_pix[1], 0)
+    print(ra_ctr, dec_ctr)
+    radius_deg, projang_deg = deproject(
+        center_coord=(ra_ctr, dec_ctr), incl=0*u.deg, pa=0*u.deg,
+        header=template_header,
+        return_offset=False, verbose=False)    
+    radius_arcsec = radius_deg*3600.
+    bkgrd_ind = (radius_arcsec >= bkgrd_rad)
+    
+    image_stack = np.zeros((n_reg, cutout_shape_pix[0],
+                            cutout_shape_pix[1]),
+                           dtype='float64')*np.nan
+    print("Stack shape: ", image_stack.shape)
+    bksub_image_stack = image_stack*np.nan
+    norm_image_stack = image_stack*np.nan
+    
+    # Make the stack
+    for ii, this_image in enumerate(image_list):
+
+        if os.path.isfile(this_image) == False:
+            continue
+
+        # Read the file
+        hdulist = fits.open(this_image)
+        this_hdu = hdulist[hdu]
+        this_map = this_hdu.data
+
+        image_stack[ii,:,:] = this_map
+
+    # Background subtract
+    for ii in range(n_reg):
+
+        this_map = image_stack[ii,:,:]
+        if np.sum(np.isfinite(this_map)) == 0:
+            continue
+
+        bkval = np.nanmedian(this_map[bkgrd_ind])
+        this_map -= bkval
+        bksub_image_stack[ii,:,:] = this_map
+        
+    # Normalize
+    for ii in range(n_reg):
+
+        this_map = bksub_image_stack[ii,:,:]
+        if np.sum(np.isfinite(this_map)) == 0:
+            continue
+
+        peak_val = this_map[int(cutout_center_pix[0]), int(cutout_center_pix[1])]
+        norm_image_stack[ii,:,:] = this_map/peak_val
+
+    # Write stack cubes to disk
+    print("Writing stacked planes to disk.")
+          
+    stack_out_file = out_file_root + "_image_stack.fits"
+    stack_hdu = fits.PrimaryHDU(image_stack, template_header)    
+    stack_hdu.writeto(stack_out_file, overwrite=True)
+
+    bksub_out_file = out_file_root + "_bksub_stack.fits"
+    bksub_hdu = fits.PrimaryHDU(bksub_image_stack, template_header)    
+    bksub_hdu.writeto(bksub_out_file, overwrite=True)
+
+    norm_out_file = out_file_root + "_norm_stack.fits"
+    norm_hdu = fits.PrimaryHDU(norm_image_stack, template_header)    
+    norm_hdu.writeto(norm_out_file, overwrite=True)
+    
+    # Collapse
+    print("Collapsing and writing images to disk.")
+    
+    stacked_image_med = np.nanmedian(image_stack, axis=0)
+    stacked_image_mean = np.nanmean(image_stack, axis=0)    
+ 
+    stacked_bksub_med = np.nanmedian(bksub_image_stack, axis=0)
+    stacked_bksub_mean = np.nanmean(bksub_image_stack, axis=0)    
+
+    stacked_norm_med = np.nanmedian(norm_image_stack, axis=0)
+    stacked_norm_mean = np.nanmean(norm_image_stack, axis=0)    
+        
+    mean_out_file = out_file_root + "_image_mean.fits"
+    mean_hdu = fits.PrimaryHDU(stacked_image_mean, template_header)    
+    mean_hdu.writeto(mean_out_file, overwrite=True)
+
+    median_out_file = out_file_root + "_image_median.fits"
+    median_hdu = fits.PrimaryHDU(stacked_image_med, template_header)    
+    median_hdu.writeto(median_out_file, overwrite=True)
+
+    mean_out_file = out_file_root + "_bksub_mean.fits"
+    mean_hdu = fits.PrimaryHDU(stacked_bksub_mean, template_header)    
+    mean_hdu.writeto(mean_out_file, overwrite=True)
+
+    median_out_file = out_file_root + "_bksub_median.fits"
+    median_hdu = fits.PrimaryHDU(stacked_bksub_med, template_header)    
+    median_hdu.writeto(median_out_file, overwrite=True)
+
+    mean_out_file = out_file_root + "_norm_mean.fits"
+    mean_hdu = fits.PrimaryHDU(stacked_norm_mean, template_header)    
+    mean_hdu.writeto(mean_out_file, overwrite=True)
+
+    median_out_file = out_file_root + "_norm_median.fits"
+    median_hdu = fits.PrimaryHDU(stacked_norm_med, template_header)    
+    median_hdu.writeto(median_out_file, overwrite=True)
+    
+    
+    
+    
+
+    
+    
+    
+    
+        
