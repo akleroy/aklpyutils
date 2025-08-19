@@ -13,6 +13,7 @@ import astropy.units as u
 from astropy.wcs import WCS
 from astropy.wcs.utils import proj_plane_pixel_scales
 from astropy.coordinates import SkyCoord
+from astropy.nddata import Cutout2D
 
 from reproject import reproject_interp, reproject_exact
 
@@ -229,12 +230,16 @@ def add_beam_to_header(hdr, bmaj, bmin=None, bpa=0.0):
 
 def align_image(hdu_to_align, target_header, hdu_in=0,
                 order='bilinear', missing_value=np.nan,
-                use_exact=False, outfile=None, overwrite=True):
+                use_exact=False, outfile=None, overwrite=False):
     """
     Aligns an image to a target header and handles reattaching the
     header to the file with updated WCS keywords.
     """
-
+    
+    # Read the image if a file name is supplied instead of an HDU
+    if type(hdu_to_align) is str:
+        hdu_to_align = fits.open(hdu_to_align)
+        
     # Run the reprojection
     if use_exact:
         reprojected_image, footprint = reproject_exact(
@@ -254,13 +259,13 @@ def align_image(hdu_to_align, target_header, hdu_in=0,
     target_wcs_keywords = target_wcs.to_header()
     
     # Get the WCS of the original header
-    orig_header = hdu_to_align.header
+    orig_header = hdu_to_align[hdu_in].header
     orig_wcs = WCS(orig_header)
     orig_wcs_keywords = orig_wcs.to_header()
 
     # Create a reprojected header using the target WCS but keeping
     # other keywords the same.
-    reprojected_header = hdu_to_align.header
+    reprojected_header = orig_header.copy()
     for this_keyword in orig_wcs_keywords:
         if this_keyword in reprojected_header:
             del reprojected_header[this_keyword]
@@ -278,6 +283,59 @@ def align_image(hdu_to_align, target_header, hdu_in=0,
     
     return(reprojected_hdu)
 
+# ------------------------------------------------------------------------
+# Extract subimage
+# ------------------------------------------------------------------------
+
+def extract_subimage(
+        hdu_to_extract, hdu_in=0,
+        center=None, extent=None,
+        mode='trim', fill_value=np.nan,
+        outfile=None, overwrite=False):
+    """
+    Extract a subimage and reform it into an HDU, optionally writing to disk.
+    """
+    
+    # Read the image if a file name is supplied instead of an HDU
+    if type(hdu_to_extract) is str:
+        hdu_to_extract = fits.open(hdu_to_extract)
+
+    # Organize the input data
+    orig_data = hdu_to_extract[hdu_in].data
+    orig_header = hdu_to_extract[hdu_in].header
+    orig_wcs = WCS(orig_header)
+    orig_wcs_keywords = orig_wcs.to_header()
+
+    # Call the cutout creation from astropy.nddata
+    cutout_object = \
+        Cutout2D(
+            orig_data, center, extent, wcs=orig_wcs,
+            mode=mode, fill_value=np.nan)
+
+    # Create a header using the cutout WCS but keeping other keywords
+    # the same.
+
+    # ... first delete the current WCS
+    extracted_header = orig_header.copy()
+    for this_keyword in orig_wcs_keywords:
+        if this_keyword in extracted_header:
+            del extracted_header[this_keyword]
+
+    # ... then add the new WCS
+    cutout_wcs_keywords = cutout_object.wcs.to_header()
+    for this_keyword in cutout_wcs_keywords:
+        extracted_header[this_keyword] = cutout_wcs_keywords[this_keyword]
+
+    # Make a combined HDU merging the image and new header 
+    extracted_hdu = fits.PrimaryHDU(
+        cutout_object.data, extracted_header)    
+    
+    # Write or return
+    if outfile is not None:
+        extracted_hdu.writeto(outfile, overwrite=overwrite)
+
+    return(extracted_hdu)
+        
 # ------------------------------------------------------------------------
 # Create coordinate grids from headers
 # ------------------------------------------------------------------------
@@ -484,10 +542,6 @@ def clean_header(
 # Deproject
 # ------------------------------------------------------------------------
 
-def make_offset_image():
-    print("TBD")
-    return(None)
-
 def deproject(center_coord=None, incl=0*u.deg, pa=0*u.deg,
               header=None, wcs=None, naxis=None, ra=None, dec=None,
               return_offset=False, verbose=False):
@@ -625,7 +679,7 @@ def deproject(center_coord=None, incl=0*u.deg, pa=0*u.deg,
         return radius_deg, projang_deg
 
 # ------------------------------------------------------------------------
-# Cutouts
+# Cutouts and subimages
 # ------------------------------------------------------------------------
 
 def make_cutouts_from_image(

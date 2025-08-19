@@ -14,17 +14,15 @@ def deproject(center_coord=None, incl=0*u.deg, pa=0*u.deg,
     """
     Calculate deprojected radii and projected angles in a disk.
 
-    This function deals with projected images of astronomical objects
-    with an intrinsic disk geometry. Given sky coordinates of the
-    disk center, disk inclination and position angle, this function
-    calculates deprojected radii and projected angles based on
+    This function deals with projected images of astronomical objects with an intrinsic disk geometry. Given sky coordinates of the disk center, disk inclination and position angle, this function calculates deprojected radii and projected angles based on
+
     (1) a FITS header (`header`), or
+
     (2) a WCS object with specified axis sizes (`wcs` + `naxis`), or
+    
     (3) RA and DEC coodinates (`ra` + `dec`).
-    Both deprojected radii and projected angles are defined relative
-    to the center in the inclined disk frame. For (1) and (2), the
-    outputs are 2D images; for (3), the outputs are arrays with shapes
-    matching the broadcasted shape of `ra` and `dec`.
+    
+    Both deprojected radii and projected angles are defined relative to the center in the inclined disk frame. For (1) and (2), the outputs are 2D images; for (3), the outputs are arrays with shapes matching the broadcasted shape of `ra` and `dec`.
 
     Parameters
     ----------
@@ -60,9 +58,11 @@ def deproject(center_coord=None, incl=0*u.deg, pa=0*u.deg,
 
     Notes
     -----
-    This is the Python version of an IDL function `deproject` included
-    in the `cpropstoo` package. See URL below:
+    This is the Python version of an IDL function `deproject` included in the `cpropstoo` package. See URL below:
+
     https://github.com/akleroy/cpropstoo/blob/master/cubes/deproject.pro
+
+    Convention on the in-plane position angle w.r.t. the receding node may be flipped.
 
     Python routine from Jiayi Sun.
     """

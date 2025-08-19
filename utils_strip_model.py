@@ -1,30 +1,12 @@
-# Module to use Richardson-Lucy deconvolution to infer a surface
-# density profile from a measured set of "strip integrals." Follows
-# Warmels et al. 1988 and is appropriate/useful for optically thin
-# tracers targeting edge-on systems (it was developped for HI).
+"""
+Module to infer a surface density profile from a measured set of "strip integrals." Follows Warmels et al. 1988 and is appropriate/useful for optically thin tracers targeting edge-on systems (it was developped for HI).
 
-# A "strip" or "stripe" integral is a sum over a series of strips
-# perpendicular to the major axis. Each strip covers the minor axis of
-# the galaxy and the sum has units of intensity*area. As a practical
-# matter, area needs the same units as the strip spacing. So if the
-# strips are defined by steps in arcsec, then integral needs to have
-# intensity*arsec^2 units.
+A "stripe integral" is a sum over a series of strips perpendicular to the major axis. Each strip covers the minor axis of the galaxy and the sum has units of intensity*area. As a practical matter, area needs the same units as the strip spacing. So if the strips are defined by steps in arcsec, then integral needs to have intensity*arsec^2 units.
 
-# The program assumes a model in which the the galaxy is a disk
-# described by an axisymmetric surface density profile. Inclination is
-# irrelevant as long as the strips cover the full minor axis
-# extent. The disk is taken to be thin, but moderate thickness should
-# have only a second-order effect, moving a little power between
-# adjacent rings. A bigger issue will be the breakdown of the assumed
-# disk geometry.
+The program assumes a model in which the the galaxy is a disk described by an axisymmetric surface density profile. Inclination is irrelevant as long as the strips cover the full minor axis extent. The disk is taken to be thin, but moderate thickness should have only a second-order effect, moving a little power between adjacent rings. A bigger issue will be the breakdown of the assumed disk geometry.
 
-# The procedure is Richardson-Lucy style iteration on a model. The
-# program calculates the cross-linkage between rings and strips and
-# then begins with a model surface density profile. It predicts the
-# observed strip integral from that surface density profile, contrasts
-# the model and prediction, adjusts the model accordingly, and repeats
-# for either a fixed number of iterations or until a convergence
-# criteria is satisfied.
+The procedure is Richardson-Lucy style iteration on a model. The program calculates the cross-linkage between rings and strips and then begins with a model surface density profile. It predicts the observed strip integral from that surface density profile, contrasts the model and prediction, adjusts the model accordingly, and repeats for either a fixed number of iterations or until a convergence criteria is satisfied.
+"""
 
 # &%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%&%
 # Imports
@@ -348,7 +330,7 @@ def fold_centered_prof(xlo_in, xhi_in, y_in, e_in=None):
     # Build new bins
     nlo = np.min(np.abs(bin_ind))
     nhi = np.max(np.abs(bin_ind))
-    fold_ind = np.arange(nlo,nhi+1,1,dtype=np.int)
+    fold_ind = np.arange(nlo,nhi+1,1,dtype=np.int64)
     x_lo = fold_ind*step-half_width
     x_hi = x_lo + width
     y = x_lo*np.nan
@@ -443,10 +425,10 @@ def fit_sdprof_to_strip(
         
         if eps < tol and jj != 0:
             converged = True
-            #print("... ... converged, eps = ", eps)
+            print("... ... converged, eps = ", eps)
             continue
         else:
-            #print("... ... continuing, eps = ", eps)
+            print("... ... continuing, eps = ", eps)
             pass
 
         #print("... ... iteration ", jj, " epsilon ", eps)

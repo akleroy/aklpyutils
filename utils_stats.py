@@ -665,6 +665,7 @@ def running_med(
     if using_lims:
         x = np.concatenate((x,x_of_ylim))
         y = np.concatenate((y,y_of_ylim))
+        yerr = np.concatenate((yerr,y_of_ylim))
         y_is_lim = np.concatenate((y_is_lim,ylim_is_lim))
         
     # Sort the data by x
@@ -699,20 +700,21 @@ def running_med(
 
         # Differentiate measurements and limits
         this_yvals = this_y[this_yislim == False]
+        this_yerrs = this_yerr[this_yislim == False]
         this_ylims = this_y[this_yislim == True]
 
         # Calculate the stats for this bin
         if using_lims:
             
             stat_dict = calc_stats(
-                this_yvals, err=this_yerr,
+                this_yvals, err=this_yerrs,
                 lims=this_ylims,
                 lims_are_lowerlims=ylim_are_lowerlims,
                 doprint=False)
         else:
             
             stat_dict = calc_stats(
-                this_yvals, err=this_yerr,
+                this_yvals, err=this_yerrs,
                 lims=None, doprint=False)                
 
         # Add info on the x coordinate
