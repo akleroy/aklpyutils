@@ -154,7 +154,7 @@ def convolve_image_with_kernel(
         image_hdu.writeto(file_out, overwrite=True)
 
 # ------------------------------------------------------------------------
-# Make a clean new simple header to spec
+# Header handling
 # ------------------------------------------------------------------------
 
 def make_simple_header(ra_ctr, dec_ctr, pix_scale,
@@ -223,7 +223,31 @@ def add_beam_to_header(hdr, bmaj, bmin=None, bpa=0.0):
     new_hdr['BPA'] = bpa
 
     return(new_hdr)
-        
+
+def update_hdr_wcs(orig_hdr, new_wcs=None, new_hdr=None):
+    """
+    Replace the WCS info in a header.
+    """
+
+    # Get the WCS of the original header
+    orig_wcs = WCS(orig_hdr)
+    orig_wcs_keywords = orig_wcs.to_header()
+
+    # Get the WCS of the target header
+    if new_wcs is None:
+        new_wcs = WCS(new_header)
+    new_wcs_keywords = new_wcs.to_header()
+    
+    output_hdr = orig_hdr.copy()
+    for this_keyword in orig_wcs_keywords:
+        if this_keyword in output_hdr:
+            del output_hdr[this_keyword]
+
+    for this_keyword in new_wcs_keywords:
+        output_hdr[this_keyword] = new_wcs_keywords[this_keyword]
+
+    return(output_hdr)
+
 # ------------------------------------------------------------------------
 # Reprojection
 # ------------------------------------------------------------------------
@@ -253,29 +277,15 @@ def align_image(hdu_to_align, target_header, hdu_in=0,
     # Blank missing locations outside the footprint    
     missing_mask = (footprint == 0)
     reprojected_image[missing_mask] = missing_value
-    
-    # Get the WCS of the target header
-    target_wcs = WCS(target_header)
-    target_wcs_keywords = target_wcs.to_header()
-    
-    # Get the WCS of the original header
-    orig_header = hdu_to_align[hdu_in].header
-    orig_wcs = WCS(orig_header)
-    orig_wcs_keywords = orig_wcs.to_header()
 
-    # Create a reprojected header using the target WCS but keeping
-    # other keywords the same.
-    reprojected_header = orig_header.copy()
-    for this_keyword in orig_wcs_keywords:
-        if this_keyword in reprojected_header:
-            del reprojected_header[this_keyword]
-
-    for this_keyword in target_wcs_keywords:
-        reprojected_header[this_keyword] = target_wcs_keywords[this_keyword]
+    # Update the header
+    orig_hdr = hdu_to_align[hdu_in].header
+    target_wcs = WCS(target_header)    
+    reprojected_hdr = update_hdr_wcs(orig_hdr, new_wcs=target_wcs)
 
     # Make a combined HDU merging the image and new header 
     reprojected_hdu = fits.PrimaryHDU(
-        reprojected_image, reprojected_header)
+        reprojected_image, reprojected_hdr)
 
     # Write or return
     if outfile is not None:
@@ -302,8 +312,8 @@ def extract_subimage(
 
     # Organize the input data
     orig_data = hdu_to_extract[hdu_in].data
-    orig_header = hdu_to_extract[hdu_in].header
-    orig_wcs = WCS(orig_header)
+    orig_hdr = hdu_to_extract[hdu_in].header
+    orig_wcs = WCS(orig_hdr)
     orig_wcs_keywords = orig_wcs.to_header()
 
     # Call the cutout creation from astropy.nddata
@@ -314,21 +324,11 @@ def extract_subimage(
 
     # Create a header using the cutout WCS but keeping other keywords
     # the same.
-
-    # ... first delete the current WCS
-    extracted_header = orig_header.copy()
-    for this_keyword in orig_wcs_keywords:
-        if this_keyword in extracted_header:
-            del extracted_header[this_keyword]
-
-    # ... then add the new WCS
-    cutout_wcs_keywords = cutout_object.wcs.to_header()
-    for this_keyword in cutout_wcs_keywords:
-        extracted_header[this_keyword] = cutout_wcs_keywords[this_keyword]
+    cutout_hdr = update_hdr_wcs(orig_hdr, new_wcs=cutout_object.wcs)
 
     # Make a combined HDU merging the image and new header 
     extracted_hdu = fits.PrimaryHDU(
-        cutout_object.data, extracted_header)    
+        cutout_object.data, cutout_hdr)    
     
     # Write or return
     if outfile is not None:
